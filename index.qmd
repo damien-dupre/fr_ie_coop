@@ -57,9 +57,6 @@ all_stop_words <- bind_rows(stop_words, domain_stop_words)
 df <- read.xlsx(here("data/extrait projet européen 110425 15h00.xlsx")) |> 
   clean_names()
 
-# df_project_fr_ie <- df |> 
-#   filter(pays %in% c("France", "Irlande"))
-
 df_project_fr <- df |> 
   filter(pays == "France")
 
@@ -71,8 +68,6 @@ df_project_coord_fr <- df |>
 
 df_project_coord_ie <- df |> 
   filter(pays == "Irlande", role_du_participant == "coordinator")
-
-# write_csv(df_project_coord_ie, "df_project_coord_ie.csv")
 ```
 
 ::: {.callout-note title="À noter"}
