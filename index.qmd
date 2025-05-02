@@ -1,0 +1,384 @@
+---
+title: "Participations Communes Franco-Irlandaises aux Projets Financés par l'Europe"
+author: "Damien Dupré, DCU Business School"
+date: today
+
+format:
+  html:
+    toc: true
+    code-fold: true
+    code-summary: "Affiche le code"
+
+execute: 
+  warning: false
+  error: false
+  
+theme: lux
+---
+
+```{r}
+#| label: setup
+
+# libraries --------------------------------------------------------------------
+library(here)
+library(janitor)
+library(knitr)
+library(openxlsx)
+library(plotly)
+library(scales)
+library(tidytext)
+library(tidyverse)
+library(wordcloud)
+
+# functions --------------------------------------------------------------------
+vector_to_sentence <- function(vec, oxford_comma = TRUE) {
+  n <- length(vec)
+  
+  if (n == 0) {
+    return("")
+  } else if (n == 1) {
+    return(vec)
+  } else if (n == 2) {
+    return(paste(vec[1], "et", vec[2]))
+  } else {
+    comma <- if (oxford_comma) ", et" else " et"
+    return(paste(paste(vec[1:(n - 1)], collapse = ", "), comma, vec[n]))
+  }
+}
+
+# objects ----------------------------------------------------------------------
+data("stop_words")
+
+domain_stop_words <- tibble(word = c("project", "research", "data", "study", "studies", "development", "results", "use", "approach", "approaches", "application", "based", "model", "models", "new", "system", "systems", "method", "methods", "framework", "analysis"))
+
+all_stop_words <- bind_rows(stop_words, domain_stop_words)
+
+# data -------------------------------------------------------------------------
+df <- read.xlsx(here("data/extrait projet européen 110425 15h00.xlsx")) |> 
+  clean_names()
+
+# df_project_fr_ie <- df |> 
+#   filter(pays %in% c("France", "Irlande"))
+
+df_project_fr <- df |> 
+  filter(pays == "France")
+
+df_project_ie <- df |> 
+  filter(pays == "Irlande")
+
+df_project_coord_fr <- df |> 
+  filter(pays == "France", role_du_participant == "coordinator")
+
+df_project_coord_ie <- df |> 
+  filter(pays == "Irlande", role_du_participant == "coordinator")
+
+# write_csv(df_project_coord_ie, "df_project_coord_ie.csv")
+```
+
+::: {.callout-note title="À noter"}
+Pour comprendre la distribution des pays partenaires, il faut savoir que plusieurs partenaires d'un même pays peuvent participer au même projet. De plus, des partenaires du même pays que le pays du participant coordinateur peuvent également être intégrés au consortium.
+:::
+
+## Distribution des Partenariats Franco-Irlandais
+
+> Nombre et pourcentage des projets ayant au moins 1 participant Français et 1 participant Irlandais (comparaison vis à vis de l’origine des autres partenaires européens).
+
+```{r}
+vector_project_id <- unique(df$identifiant_de_projet)
+vector_project_id_fr <- unique(df_project_fr$identifiant_de_projet)
+vector_project_id_ie <- unique(df_project_ie$identifiant_de_projet)
+vector_project_id_fr_ie <- intersect(vector_project_id_fr,vector_project_id_ie)
+
+n_total_project <- length(vector_project_id)
+n_total_project_fr <- length(vector_project_id_fr)
+n_total_project_ie <- length(vector_project_id_ie)
+n_total_project_fr_ie <- length(vector_project_id_fr_ie)
+```
+
+À la date du 11/04/25, 15h00, il y a un total de `r n_total_project` projets de recherche financés par l'Union Européenne entre `r min(df$annee_de_lappel_a_projets)` et `r max(df$annee_de_lappel_a_projets)`, tout appel et pays confondus.
+
+Parmis ces projects, `r n_total_project_fr` projets (`r percent(n_total_project_fr/n_total_project)`) impliquent au moins un participant Français qu'il soit coordinateur ou partenaire, tout projet confondu. De même, `r n_total_project_ie` projets (`r percent(n_total_project_ie/n_total_project)`) impliquent au moins un participant Irlandais qu'il soit coordinateur ou partenaire, tout projet confondu.
+
+En ce qui concerne la coopération Franco-Irlandaise, `r n_total_project_fr_ie` projets (`r percent(n_total_project_fr_ie/n_total_project)`) impliquent au moins un participant Français et un participant Irlandais, qu'ils soient coordinateurs ou partenaires, tout projet confondu. Cela correspond donc à `r percent(n_total_project_fr_ie/n_total_project_fr)` des projets Français et à `r percent(n_total_project_fr_ie/n_total_project_ie)` des projets Irlandais.
+
+## Distribution des Projets Coordonnés par la France
+
+> Lorsque la France coordonne, quel est le nombre et le pourcentage des projets qui ont un partenaire Irlandais, ou venant d'un autre pays.
+
+```{r}
+vector_project_id_coord_fr <- unique(df_project_coord_fr$identifiant_de_projet)
+n_total_project_coord_fr <- length(vector_project_id_coord_fr)
+
+df_pays_unique <- df |> 
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_fr,
+    role_du_participant != "coordinator"
+  ) |> 
+  count(identifiant_de_projet, pays, name = "n_participants_pays") |> 
+  count(pays, name = "n_pays_partnairs_unique")
+
+df_pays_all <- df |>
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_fr,
+    role_du_participant != "coordinator"
+  ) |>
+  count(pays, name = "n_pays_partnairs_all")
+
+vec_pays_unique <- df_pays_unique |> 
+  pull(n_pays_partnairs_unique, name = pays)
+```
+
+Parmi ces projets, il y a un total de `r n_total_project_coord_fr` projets coordonnés par un participant Français.
+
+Ainsi, parmis les `r n_total_project_coord_fr` projets coordonnés par un participant Français, `r vec_pays_unique[["Irlande"]]` (`r percent(vec_pays_unique[["Irlande"]]/n_total_project_coord_fr)`) contiennent au moins un partenaire Irlandais.
+
+Pour une comparaison avec les autres pays, voir la visualisation ci-dessous.
+
+```{r}
+scatterplot <- full_join(df_pays_unique, df_pays_all, by = join_by(pays)) |> 
+  filter(pays != "France") |> 
+  rename(`N projet unique` = n_pays_partnairs_unique, `N total partenaires` = n_pays_partnairs_all) |> 
+  ggplot(aes(
+    `N projet unique`, 
+    `N total partenaires`,
+    text = paste("Pays:", pays)
+    )) +
+  geom_jitter(width = 0.1, height = 0.1, size = 5, fill = "black", color = "black", alpha = 0.2) +
+  scale_x_continuous(trans = 'log10') +
+  scale_y_continuous(trans = 'log10') +
+  theme_bw() +
+  labs(
+    x = NULL,
+    y = NULL 
+  )
+
+ggplotly(scatterplot) |> 
+  layout(
+    title = list(text = paste0('<sup>', 'Note: jitter ajouté pour la visualisation des données superposés','</sup>')),
+    margin = list(l = 100, r = 100, b = 100, t = 100),
+    xaxis = list(title = list(text = paste("Nombre de projet ayant au moins 1 partenaire du pays\nparmis les", n_total_project_coord_fr, "projets coordonnés\npar un participant Français\n(échelle logarithmique)"), standoff = 25)),
+    yaxis = list(title = list(text = paste("Nombre de partenaire du pays\n participant aux", n_total_project_coord_fr, "projets coordonnés\npar un participant Français\n(échelle logarithmique)"), standoff = 25))
+  )
+```
+
+À noter que cette représentation n'inclut pas les partenaires Français participant aux projets coordonnés par un participant Français alors que ceux-ci sont les plus nombreux (`r vec_pays_unique[["France"]]` projets, c'est-à-dire `r percent(vec_pays_unique[["France"]]/n_total_project_coord_fr)` d'entre eux, contiennent au moins un partenaire Français).
+
+## Distribution des Projets Coordonnés par l'Irlande
+
+>  Lorsque l'Irlande coordonne, quel est le nombre et le pourcentage des projets qui ont un partenaire Français, ou venant d'un autre pays.
+
+```{r}
+vector_project_id_coord_ie <- unique(df_project_coord_ie$identifiant_de_projet)
+n_total_project_coord_ie <- length(vector_project_id_coord_ie)
+
+df_pays_unique <- df |> 
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_ie,
+    role_du_participant != "coordinator"
+  ) |> 
+  count(identifiant_de_projet, pays, name = "n_participants_pays") |> 
+  count(pays, name = "n_pays_partnairs_unique")
+
+df_pays_all <- df |>
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_ie,
+    role_du_participant != "coordinator"
+  ) |>
+  count(pays, name = "n_pays_partnairs_all")
+
+vec_pays_unique <- df_pays_unique |> 
+  pull(n_pays_partnairs_unique, name = pays)
+```
+
+Parmi ces projets, il y a un total de `r n_total_project_coord_ie`projets coordonnés par un participant Irlandais.
+
+Ainsi, parmis les `r n_total_project_coord_ie` projets coordonnés par un participant Irlandais, `r vec_pays_unique[["France"]]` (`r percent(vec_pays_unique[["France"]]/n_total_project_coord_ie)`) contiennent au moins un partenaire Français.
+
+Pour une comparaison avec les autres pays, voir la visualisation ci-dessous.
+
+```{r}
+scatterplot <- full_join(df_pays_unique, df_pays_all, by = join_by(pays)) |> 
+  filter(pays != "Irlande") |> 
+  rename(`N projet unique` = n_pays_partnairs_unique, `N total partenaires` = n_pays_partnairs_all) |> 
+  ggplot(aes(
+    `N projet unique`, 
+    `N total partenaires`,
+    text = paste("Pays:", pays)
+    )) +
+  geom_jitter(width = 0.1, height = 0.1, size = 5, fill = "black", color = "black", alpha = 0.2) +
+  scale_x_continuous(trans = 'log10') +
+  scale_y_continuous(trans = 'log10') +
+  theme_bw() +
+  labs(
+    x = NULL,
+    y = NULL 
+  )
+
+ggplotly(scatterplot) |> 
+  layout(
+    title = list(text = paste0('<sup>', 'Note: jitter ajouté pour la visualisation des données superposés','</sup>')),
+    margin = list(l = 100, r = 100, b = 100, t = 100),
+    xaxis = list(title = list(text = paste("Nombre de projet ayant au moins 1 partenaire du pays\nparmis les", n_total_project_coord_fr, "projets coordonnés\npar un participant Irlandais\n(échelle logarithmique)"), standoff = 25)),
+    yaxis = list(title = list(text = paste("Nombre de partenaire du pays\n participant aux", n_total_project_coord_fr, "projets coordonnés\npar un participant Irlandais\n(échelle logarithmique)"), standoff = 25))
+  )
+```
+
+À noter que cette représentation n'inclut pas les partenaires Irlandais participant aux projets coordonnés par un participant Irlandais alors que ceux-ci sont les plus nombreux (`r vec_pays_unique[["Irlande"]]` projets, c'est-à-dire `r percent(vec_pays_unique[["Irlande"]]/n_total_project_coord_ie)` d'entre eux, contiennent au moins un partenaire Irlandais).
+
+## Distribution par Thématiques
+
+> Analyses en fonction des grandes thématiques
+
+### Thématique des Projets Coordonnés par un Participant Français et impliquant un partenaire Irlandais
+
+Le tableau suivant recense les 10 thématiques les plus utilisées lorsqu'un projet coordonné par un participant Français implique également un partenaire Irlandais :
+
+```{r}
+df |> 
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_fr,
+    pays == "Irlande"
+  ) |> 
+  select(identifiant_de_projet, thematique_anglais) |> 
+  distinct() |> 
+  drop_na() |> 
+  count(thematique_anglais, sort = TRUE) |> 
+  head(n = 10) |> 
+  kable()
+```
+
+### Thématique des Projets Coordonnés par un Participant Irlandais et impliquant un partenaire Français
+
+Le tableau suivant recense les 10 thématiques les plus utilisées lorsqu'un projet coordonné par un participant Irlandais implique également un partenaire Français :
+
+```{r}
+df |> 
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_ie,
+    pays == "France"
+  ) |> 
+  select(identifiant_de_projet, thematique_anglais) |> 
+  distinct() |> 
+  drop_na() |> 
+  count(thematique_anglais, sort = TRUE) |> 
+  head(n = 10) |> 
+  kable()
+```
+
+## Tendance de Mots-Clés
+
+> Tendance de mots clés qui ressortent dans les projets impliquant la France et l’Irlande et observer s’il y a une différence lorsqu’il s’agit de projets coordonnés par l’Irlande ou la France)
+
+::: {.callout-note title="À noter"}
+Le traitement des mots clés implique une correspondance exacte entre les différents projets. Cette approche est donc sensible aux différences liées aux pluriels, synonymes, ou bien aux erreurs d'orthographe.
+
+Plutôt que de faire correspondre les mots clés, il est aussi possible d'évaluer la redondance des mots utilisés de manière générale.
+:::
+
+### Mots-Clés des Projets Coordonnés par un Participant Français et impliquant un partenaire Irlandais
+
+```{r}
+df_project_unique <- df |> 
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_fr,
+    pays == "Irlande"
+  ) |> 
+  select(identifiant_de_projet, free_keywords) |> 
+  distinct()
+
+keyword_counts <- df_project_unique |> 
+  drop_na() |> 
+  mutate(free_keywords = str_split(free_keywords, ",")) |> 
+  unnest(free_keywords) |> 
+  mutate(free_keywords = str_trim(free_keywords)) |> 
+  count(free_keywords, sort = TRUE)
+
+keyword_counts_vec <- keyword_counts |> 
+  count(n) |> 
+  mutate(txt = paste(nn, "mots clés sont utilisés", n, "fois"), .keep = "none") |> 
+  pull(txt)
+```
+
+Parmi les mots clés utilisés, `r vector_to_sentence(keyword_counts_vec)`. Les mots clés utilisés 4 fois sont `r vector_to_sentence(keyword_counts |> filter(n == 4) |> pull(free_keywords))`. Les mots clés utilisés 3 fois sont `r vector_to_sentence(keyword_counts |> filter(n == 3) |> pull(free_keywords))`. 
+
+La représentation ci-dessous comptabilise les mots uniques utilisés dans tous les mots-clés soumis.
+
+```{r}
+keywords <- df_project_unique |> 
+  filter(!is.na(free_keywords)) |> 
+  mutate(free_keywords = free_keywords |> 
+    str_replace_all("[,&]", " ") |> 
+    str_replace_all("[^a-zA-Z0-9 ]", "") |> 
+    str_to_lower() |> 
+    str_split(" ")
+  ) |> 
+  unnest(free_keywords) |> 
+  mutate(free_keywords = str_trim(free_keywords)) |> 
+  filter(free_keywords != "") |> 
+  anti_join(all_stop_words, by = c("free_keywords" = "word")) |> 
+  count(free_keywords, sort = TRUE)
+
+wordcloud(
+  words = keywords$free_keywords,
+  freq = keywords$n,
+  min.freq = 2,
+  max.words = 200,
+  random.order = FALSE,
+  rot.per = 0.25,
+  colours = brewer.pal(8, "Dark2")
+)
+```
+
+### Mots-Clés des Projets Coordonnés par un Participant Irlandais et impliquant un partenaire Français
+
+```{r}
+df_project_unique <- df |> 
+  filter(
+    identifiant_de_projet %in% vector_project_id_coord_ie,
+    pays == "France"
+  ) |> 
+  select(identifiant_de_projet, free_keywords) |> 
+  distinct()
+
+keyword_counts <- df_project_unique |> 
+  filter(!is.na(free_keywords)) |> 
+  mutate(free_keywords = str_split(free_keywords, ",")) |> 
+  unnest(free_keywords) |> 
+  mutate(free_keywords = str_trim(free_keywords)) |> 
+  count(free_keywords, sort = TRUE)
+
+keyword_counts_vec <- keyword_counts |> 
+  count(n) |> 
+  mutate(txt = paste(nn, "mots clés sont utilisés", n, "fois"), .keep = "none") |> 
+  pull(txt)
+```
+
+Parmi les mots clés utilisés, `r vector_to_sentence(keyword_counts_vec)`. Le mot clé utilisé 9 fois est `r vector_to_sentence(keyword_counts |> filter(n == 9) |> pull(free_keywords))`. Le mot clé utilisé 3 fois est `r vector_to_sentence(keyword_counts |> filter(n == 3) |> pull(free_keywords))`. 
+
+La représentation ci-dessous comptabilise les mots uniques utilisés dans tous les mots-clés soumis.
+
+```{r}
+keywords <- df_project_unique |> 
+  filter(!is.na(free_keywords)) |> 
+  mutate(free_keywords = free_keywords |> 
+    str_replace_all("[,&]", " ") |> 
+    str_replace_all("[^a-zA-Z0-9 ]", "") |> 
+    str_to_lower() |> 
+    str_split(" ")
+  ) |> 
+  unnest(free_keywords) |> 
+  mutate(free_keywords = str_trim(free_keywords)) |> 
+  filter(free_keywords != "") |> 
+  anti_join(all_stop_words, by = c("free_keywords" = "word")) |> 
+  count(free_keywords, sort = TRUE)
+
+wordcloud(
+  words = keywords$free_keywords,
+  freq = keywords$n,
+  min.freq = 2,
+  max.words = 200,
+  random.order = FALSE,
+  rot.per = 0.25,
+  colours = brewer.pal(8, "Dark2")
+)
+```
